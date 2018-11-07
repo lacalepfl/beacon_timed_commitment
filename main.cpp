@@ -5,7 +5,6 @@
 #include <cstdlib> // strtol
 #include <unistd.h>
 #include <sys/stat.h>
-#include <sys/timeb.h>
 #include <math.h>
 #include <string.h>
 #include <sys/types.h>
@@ -14,9 +13,9 @@
 #include "timed_commit.h"
 
 
-#define ITERATIONS 255000000L
-#define LOG_P 2048 // multiple of 512
-#define AES_KEY_BITSIZE 256 // smaller or equal to log_p
+#define TIMEDITERATIONS 300000000000L
+#define BITSIZE_QP 512
+#define AES_KEY_BITSIZE 256
 #define ERR_IO     -1
 #define ERR_MALLOC -2
 #define ERR_NULL   -3
@@ -25,12 +24,7 @@
 /*
  * 
  * */
- 
-void pass_crypt_commit(mpz_t k, mpz_t p ,mpz_t commitment,int log_p, long iterations){
-    generate_random(k,AES_KEY_BITSIZE/8);
-    generate_random_prime(p,log_p/8);
-    commit(commitment,k,iterations,p);
-}
+
 
 int main(int argc, char *argv[]){
     
@@ -38,10 +32,11 @@ int main(int argc, char *argv[]){
     std::string data_file_name("/Users/trx/projetunicorn/timed_pass/data.txt"); //fichier des données par defaut
     FILE* sortie;
     
-    long iterations = ITERATIONS;
-    int log_p = LOG_P;
+    long iterations = TIMEDITERATIONS;
+    int log_pq = BITSIZE_QP;
+    long aesk_length=AES_KEY_BITSIZE;
 
-    mpz_t k,p,timed_commitment;
+
     
     if(argc >1){
         for (int i = 1; i < argc;){
@@ -59,7 +54,12 @@ int main(int argc, char *argv[]){
                         break;
                     }
                     case 'l': {
-                        log_p = strtol(argv[i+1], NULL, 10); //pareil pour logp
+                        log_pq = strtol(argv[i+1], NULL, 10); //pareil pour logpq
+                        i += 2;
+                        break;
+                    }
+                    case 'k': {
+                        aesk_length = strtol(argv[i+1], NULL, 10);
                         i += 2;
                         break;
                     }
@@ -73,11 +73,14 @@ int main(int argc, char *argv[]){
             }
         }
     }
-     
-    mpz_init(k);
-    mpz_init(p);
-    mpz_init(timed_commitment);
-    pass_crypt_commit(k,p,timed_commitment,log_p,iterations);
+
+    /* Erreur si le nom du fichier est null */
+    if(data_file_name.c_str() ==NULL){
+        return ERR_NULL;
+    }
+
+    char *N, *P, *Q, *C, *k;
+    generate_commit(&N,&P,&Q,&C,&k,BITSIZE_QP,TIMEDITERATIONS,AES_KEY_BITSIZE);
 
 
     /* Ouverture du fichier en écriture */
@@ -88,14 +91,12 @@ int main(int argc, char *argv[]){
         return ERR_IO; 
     }
 
-    char* strk=mpz_get_str(NULL,36,k);
 
-    /*gmp_printf("%Zx\n", p);
-    gmp_printf("%Zx\n", timed_commitment);
-    std::cout<< strk << std::endl;*/
-    gmp_fprintf(sortie,"%Zx\n", p);
-    gmp_fprintf(sortie,"%Zx\n", timed_commitment);
-    fprintf(sortie,"%s\n", strk);
+    fprintf(sortie, "%s\n", k);
+    fprintf(sortie, "%s\n", C);
+    fprintf(sortie, "%s\n", N);
+    fprintf(sortie, "%s\n", P);
+    fprintf(sortie, "%s\n", Q);
 
     fclose(sortie);
     

@@ -66,7 +66,9 @@ static void xor_mod(mpz_t result, const mpz_t input1, const mpz_t flip, const mp
     }
 }
 
-void generate_random(mpz_t result,const int bytelength){
+void generate_random(mpz_t result,const int bitlength){
+  int bytelength=bitlength/8;
+  bytelength+=(bitlength%8) ? 1 : 0 ;
   unsigned char *buf = (unsigned char *)malloc(bytelength+1);
   FILE* f=fopen("/dev/urandom","rb");
   if(f){
@@ -77,59 +79,93 @@ void generate_random(mpz_t result,const int bytelength){
   free(buf);
 }
 
-void generate_random_prime(mpz_t result, int bytelength){
+void generate_random_prime(mpz_t result, int bitlength){
   mpz_t rand;
   mpz_init(rand);
-  generate_random(rand,bytelength);
-  mpz_setbit(rand,bytelength*8-1);
+  generate_random(rand,bitlength);
+  mpz_setbit(rand,bitlength-1);
   next_prime(result,rand);
   mpz_clear(rand);
 }
 
-void commit(mpz_t commitment, const mpz_t input, int iterations, const mpz_t p){
-  mpz_t a, ones;
-  mpz_init_set(a,input);
+void generate_commit(char** N, char** P, char** Q, char** C, char** k, long bitlength_qp, long iterations, long aes_klength){
+  mpz_t Nm,Pm,Qm,Cm,km, ktrunc, Pminus, Qminus, phiN, expf, expe;
 
-  mpz_init_set_ui(ones, 1);
-  mpz_mul_2exp(ones, ones, mpz_sizeinbase(p,2) >> 1);
-  mpz_sub_ui(ones, ones, 1);
+  mpz_init(Nm);
+  mpz_init(Pm);
+  mpz_init(Qm);
+  mpz_init(Cm);
+  mpz_init(km);
+  mpz_init(ktrunc);
+  mpz_init(Pminus);
+  mpz_init(Qminus);
+  mpz_init(phiN);
+  mpz_init(expf);
+  mpz_init_set_ui(expe,3);
 
-  for (int i = 0; i < iterations; ++i) {
-      invert_sqrt(a, a, p);
-      //invert_permutation(a, a);
-      xor_mod(a,a,ones,p);
-  }
+  do{
+    generate_random_prime(Pm,bitlength_qp);
+    generate_random_prime(Qm,bitlength_qp);
 
-  mpz_set(commitment,a);
+    mpz_sub_ui(Pminus, Pm, 1);
+    mpz_sub_ui(Qminus, Qm, 1);
 
-  mpz_clear(a);
-  mpz_clear(ones);
+    mpz_mul(phiN, Pminus, Qminus);
+
+  }while(mpz_gcd_ui(NULL,phiN,3)!=1);
+  mpz_mul(Nm, Pm, Qm);
+
+  generate_random(Cm,bitlength_qp);
+
+  //compute
+  mpz_powm_ui (expf, expe, iterations, phiN);
+  mpz_powm (km, Cm, expf, Nm);
+  //------
+
+  mpz_tdiv_r_2exp(ktrunc,km,aes_klength);
+  *k=mpz_get_str(NULL,36,ktrunc);
+  *N=mpz_get_str(NULL,16,Nm);
+  *P=mpz_get_str(NULL,16,Pm);
+  *Q=mpz_get_str(NULL,16,Qm);
+  *C=mpz_get_str(NULL,16,Cm);
+
+
+  mpz_clear(Nm);
+  mpz_clear(Pm);
+  mpz_clear(Qm);
+  mpz_clear(Cm);
+  mpz_clear(km);
+  mpz_clear(ktrunc);
+  mpz_clear(Pminus);
+  mpz_clear(Qminus);
+  mpz_clear(phiN);
+  mpz_clear(expf);
+  mpz_clear(expe);
 }
 
-void force_open(mpz_t opened , const mpz_t commitment, int iterations, const mpz_t p){
-  mpz_t a, ones, e;
-  //a est initialisé à seed
-  mpz_init_set(a, commitment);
+void force_open(char** k,const char* C,const char* N, long iterations, long aes_klength){
+  mpz_t Nm,Pm,Qm,Cm,km, ktrunc, expf, expe;
 
-  mpz_init_set_ui(ones, 1);
-  mpz_mul_2exp(ones, ones, mpz_sizeinbase(p,2) >> 1); // flip half the bits (least significant)
-  mpz_sub_ui(ones, ones, 1);
+  mpz_init_set_str(Nm,N,16);
+  mpz_init_set_str(Cm,C,16);
+  mpz_init(km);
+  mpz_init(ktrunc);
+  mpz_init(expf);
+  mpz_init_set_ui(expe,3);
 
-  // compute the exponent for sqrt extraction
+  //compute
+  mpz_pow_ui (expf, expe, iterations);
+  mpz_powm (km, Cm, expf, Nm);
+  //------
 
-  mpz_init_set(e, p);
-  mpz_add_ui(e, e, 1);
-  mpz_tdiv_q_ui(e, e, 4);
+  mpz_tdiv_r_2exp(ktrunc,km,aes_klength);
+  *k=mpz_get_str(NULL,36,ktrunc);
 
-  for (int i = 0; i < iterations; ++i) {
-      //permutation(a, a);
-      xor_mod(a,a,ones,p);
-      sqrt_permutation(a, a, p, e);
-  }
 
-  //witness devient a
-  mpz_set(opened, a);
-
-  mpz_clear(a);
-  mpz_clear(ones);
+  mpz_clear(Nm);
+  mpz_clear(Cm);
+  mpz_clear(km);
+  mpz_clear(ktrunc);
+  mpz_clear(expf);
+  mpz_clear(expe);
 }

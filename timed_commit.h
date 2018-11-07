@@ -1,11 +1,7 @@
 #ifndef TIMED_COMMIT_H
 #define TIMED_COMMIT_H
 
-#include <gmp.h>
-
-void generate_random(mpz_t result, int bytelength);
-void generate_random_prime(mpz_t result, int bytelength);
-void commit(mpz_t commitment, const mpz_t input, int iterations, const mpz_t p);
-void force_open(mpz_t opened , const mpz_t commitment, int iterations, const mpz_t p);
+void generate_commit(char** N, char** P, char** Q, char** C, char** k, long bitlength_qp, long iterations, long aes_klength);
+void force_open(char** k,const char* C,const char* N, long iterations, long aes_klength);
 
 #endif // TIMED_COMMIT_H
