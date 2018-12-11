@@ -1,6 +1,6 @@
 CC=g++
 CFLAGS=-Wall -I/usr/local/include -O3
-CFLAGSLINK=-lgmp 
+CFLAGSLINK=-lgmp -L/usr/local/lib/ -lssl -lcrypto
 SOURCES=
 
 all: timed_pass clean

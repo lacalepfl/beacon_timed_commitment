@@ -4,10 +4,62 @@
 
 #include <string.h>
 
+#include <openssl/evp.h>
+#include <openssl/bio.h>
+#include <openssl/sha.h>
+
 #include "gmp.h"
 
 #include "timed_commit.h"
 
+
+// digest("The string to hash", output_with_enough_space_available, "SHA512")
+
+//digest = le hasher
+
+/*1er etape de l'algo avant de faire les racines carrees et tout cest de prendre le gros fichier ou les donnees 
+ * et de le compresser avec une fonction de hashage (sha standard implementee dans openssl)
+ * l'entree de la fonction cest string a hasher, output buffer = resultat hashé, et le 3ieme cest la fonction de hashage que 
+ * l'on veut utiliser (donc dans ce cas digest_name sera sha512)
+ * */
+ 
+ /*les deux points std::string veulent dire que ce type string vient de l'espace de nom (ou librairie) std
+  * pour ne pas utiliser :: on peut importer le namespace std comme on a fait pour cv et on pourra alors directement ecrire 
+  * string au lieu de std::string
+  * */
+ 
+static int digest(const char *string, char outputBuffer[], const std::string digest_name)
+{
+    //openssl pour faire du hashage
+    EVP_MD_CTX *mdctx;
+    const EVP_MD *md;
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int md_len;
+    
+    OpenSSL_add_all_digests();
+    
+    md = EVP_get_digestbyname(digest_name.c_str());
+    if(!md) {
+        std::cout << "Unknown message digest" << digest_name << std::endl;
+        return 1;
+    }
+    
+    mdctx = EVP_MD_CTX_create();
+    
+    EVP_DigestInit_ex(mdctx, md, NULL);
+    EVP_DigestUpdate(mdctx, string, strlen(string));
+    EVP_DigestFinal_ex(mdctx, hash, &md_len);
+    EVP_MD_CTX_destroy(mdctx);
+    
+    unsigned int i;
+    for (i = 0; i < md_len; i++) {
+        sprintf(outputBuffer + (i * 2), "%02x", hash[i]);
+    }
+    
+    outputBuffer[i * 2] = '\0';
+    
+    return 0;
+}
 
 static void next_prime(mpz_t p, const mpz_t n) {
     if (mpz_even_p(n)) mpz_add_ui(p,n,1);
@@ -67,16 +119,28 @@ static void xor_mod(mpz_t result, const mpz_t input1, const mpz_t flip, const mp
 }
 
 void generate_random(mpz_t result,const int bitlength){
+  char bufsha[129] = "";
+  int i=0;
   int bytelength=bitlength/8;
   bytelength+=(bitlength%8) ? 1 : 0 ;
-  unsigned char *buf = (unsigned char *)malloc(bytelength+1);
+  int blocklength=bytelength/512;
+  blocklength+=(bytelength%512) ? 1 : 0 ;
+  unsigned char *bufread = (unsigned char *)malloc(bytelength+1);
+  char buffin [((blocklength*128)+1)];
+  buffin[(blocklength*128)] ='\0';
   FILE* f=fopen("/dev/urandom","rb");
   if(f){
-    fread(buf,1,bytelength,f);
-    mpz_import(result,bytelength,1,1,0,0,buf);
+    for(i=0; i <blocklength;i++){
+      fread(bufread,1,bytelength,f);
+      digest((char*)bufread, bufsha, "SHA512");
+      memcpy(buffin+(i*128),bufsha,128);
+    }
+    //mpz_import(result,bytelength,1,1,0,0,buffin);
+    mpz_set_str(result,buffin,16);
+    mpz_fdiv_r_2exp(result,result,bitlength);
     fclose(f);
   }
-  free(buf);
+  free(bufread);
 }
 
 void generate_random_prime(mpz_t result, int bitlength){
@@ -101,18 +165,16 @@ void generate_commit(char** N, char** P, char** Q, char** C, char** k, long bitl
   mpz_init(Qminus);
   mpz_init(phiN);
   mpz_init(expf);
-  mpz_init_set_ui(expe,3);
+  mpz_init_set_ui(expe,2);
 
-  do{
-    generate_random_prime(Pm,bitlength_qp);
-    generate_random_prime(Qm,bitlength_qp);
+  generate_random_prime(Pm,bitlength_qp);
+  generate_random_prime(Qm,bitlength_qp);
 
-    mpz_sub_ui(Pminus, Pm, 1);
-    mpz_sub_ui(Qminus, Qm, 1);
+  mpz_sub_ui(Pminus, Pm, 1);
+  mpz_sub_ui(Qminus, Qm, 1);
 
-    mpz_mul(phiN, Pminus, Qminus);
+  mpz_mul(phiN, Pminus, Qminus);
 
-  }while(mpz_gcd_ui(NULL,phiN,3)!=1);
   mpz_mul(Nm, Pm, Qm);
 
   generate_random(Cm,bitlength_qp);
@@ -151,7 +213,7 @@ void force_open(char** k,const char* C,const char* N, long iterations, long aes_
   mpz_init(km);
   mpz_init(ktrunc);
   mpz_init(expf);
-  mpz_init_set_ui(expe,3);
+  mpz_init_set_ui(expe,2);
 
   //compute
   mpz_pow_ui (expf, expe, iterations);
